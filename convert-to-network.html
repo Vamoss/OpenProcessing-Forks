@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <link href="./css/bootstrap.min.css" rel="stylesheet" />
+        <script src="./js/bootstrap.bundle.min.js"></script>
+        <style>
+            #loggerContainer {
+                overflow: auto; height: 30vh;
+            }
+            #logger thead th {
+                position: sticky; top: 0; z-index: 1;
+            }
+        </style>
+    </head>
+<body>
+    <div class="container">
+        <div class="row">
+            <div class="col">
+                <h1>OpenProcessing Fork Converter</h1>
+                <button type="button" class="btn btn-primary" id="startBrn">Start</button>
+                <div id="loggerContainer">
+                    <table class="table" id="logger">
+                        <thead>
+                            <tr>
+                                <th scope="col">#</th>
+                                <th scope="col">TYPE</th>
+                                <th scope="col">MESSAGE</th>
+                                <th scope="col">STATUS</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                        </tbody>
+                    </table>
+                </div>
+                <div class="progress" id="progress" >
+                    <div id="progressBar" class="progress-bar progress-bar-striped progress-bar-animated" role="progressbar" aria-valuenow="75" aria-valuemin="0" aria-valuemax="100" style="width: 75%"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <script>
+        var loggerEl = document.getElementById("logger");
+        var startBtnEl = document.getElementById("startBrn");
+        var progressEl = document.getElementById("progress");
+        var progressBarEl = document.getElementById("progressBar");
+
+        var toExport = {
+            sketches: [],
+            forks: [],
+            users: [],
+            users_sketches: []
+        };
+        var usersObj = {};
+        
+        startBrn.addEventListener("click", function(e){
+            getData();
+        });
+
+        hideProgress();
+
+        function getData(){
+            addToLog("NOTICE", "CONVERT", "INIT");
+            fetch("data-all-parsed-in-220109.json")
+                .then(response => response.json())
+                .then(json => {
+                    addToLog("NOTICE", "CONVERT", "COMPLETE");
+                    showProgress();
+                    json.forEach(sketch => {
+                        convertSketch(sketch, false);
+                    })
+                    download(JSON.stringify(toExport), 'converted.json', 'text/plain');
+                    //console.log(toExport)
+                });
+        }
+
+        function convertSketch(sketch, f){
+            const {forks, user, ...filteredSketch} = sketch;
+            
+            toExport.sketches.push(filteredSketch);
+            forks.forEach(fork => {
+                toExport.forks.push({ "source": sketch.visualID, "target": fork.visualID });
+                convertSketch(fork, true);
+            })
+            if(user){
+                if(!usersObj[user.userID]){
+                    usersObj[user.userID] = true;
+                    toExport.users.push(user);
+                }
+                toExport.users_sketches.push({ "source": user.userID, "target": sketch.visualID });
+            }
+        }
+
+        function download(content, fileName, contentType) {
+            var a = document.createElement("a");
+            var file = new Blob([content], {type: contentType});
+            a.href = URL.createObjectURL(file);
+            a.download = fileName;
+            a.click();
+        }
+
+        /**
+         * Progress bar
+         **/
+        function setProgress(pct){
+            progressBarEl.style.width = (pct * 100) + "%";
+        }
+
+        function showProgress(){
+            progressEl.style.display = "";
+        }
+
+        function hideProgress(){
+            progressEl.style.display = "none";
+        }
+        
+        /**
+         * Logger
+         **/
+        var counter = 0;
+        function addToLog(type, message, status){
+            counter++;
+            var trEl = document.createElement("tr");
+            var thEl = document.createElement("th");
+            var tdEl1 = document.createElement("td");
+            var tdEl2 = document.createElement("td");
+            var tdEl3 = document.createElement("td");
+            thEl.setAttribute("scope", "row");
+            thEl.innerHTML = counter;
+            if(type == "NOTICE")
+                tdEl1.innerHTML = '<span class="badge bg-primary">' + type + '</span>';
+            else if(type == "ERROR")
+                tdEl1.innerHTML = '<span class="badge bg-danger">' + type + '</span>';
+            else
+                tdEl1.innerHTML = '<span class="badge bg-secondary">' + type + '</span>';
+            tdEl2.innerHTML = message;
+
+            if(status == "INIT")
+                tdEl3.innerHTML = '<span class="badge bg-primary">' + status + '</span>';
+            else if(status == "COMPLETE")
+                tdEl3.innerHTML = '<span class="badge bg-success">' + status + '</span>';
+            else
+                tdEl3.innerHTML = '<span class="badge bg-secondary">' + status + '</span>';
+            trEl.appendChild(thEl);
+            trEl.appendChild(tdEl1);
+            trEl.appendChild(tdEl2);
+            trEl.appendChild(tdEl3);
+            loggerEl.tBodies[0].prepend(trEl)
+        }
+    </script>
+</body>
+</html>

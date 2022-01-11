@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <link href="./css/bootstrap.min.css" rel="stylesheet" />
+        <script src="./js/bootstrap.bundle.min.js"></script>
+        <style>
+            #loggerContainer {
+                overflow: auto; height: 30vh;
+            }
+            #logger thead th {
+                position: sticky; top: 0; z-index: 1;
+            }
+        </style>
+    </head>
+<body>
+    <div class="container">
+        <div class="row">
+            <div class="col">
+                <h1>OpenProcessing Fork - Data Scraper</h1>
+                <button type="button" class="btn btn-primary" id="startBrn">Start</button>
+                <div id="loggerContainer">
+                    <table class="table" id="logger">
+                        <thead>
+                            <tr>
+                                <th scope="col">#</th>
+                                <th scope="col">TYPE</th>
+                                <th scope="col">MESSAGE</th>
+                                <th scope="col">STATUS</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                        </tbody>
+                    </table>
+                </div>
+                <div class="progress" id="progress" >
+                    <div id="progressBar" class="progress-bar progress-bar-striped progress-bar-animated" role="progressbar" aria-valuenow="75" aria-valuemin="0" aria-valuemax="100" style="width: 75%"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <script>
+        var TEST = false;
+        var loggerEl = document.getElementById("logger");
+        var startBtnEl = document.getElementById("startBrn");
+        var progressEl = document.getElementById("progress");
+        var progressBarEl = document.getElementById("progressBar");
+        var allData = {};
+
+        startBrn.addEventListener("click", function(e){
+            getMostLiked();
+        });
+
+        hideProgress();
+
+        function getMostLiked(){
+            if(TEST){
+                allData = [
+                    {
+                        "visualID":"1250878",
+                        "title":"Circle Square No Intersect Pulse",
+                        "createdOn":"2014-12-11 03:16:56",
+                        "fullname":"Michael Pinn",
+                        "userID":"39442",
+                        "isPjs":"1",
+                        "hearts":"119"
+                    }
+                ];
+                showProgress();
+                getFullData();
+            }else{
+                addToLog("NOTICE", "GET MOST LIKED", "INIT");
+                fetch("data/data-100-most-liked-in-220109.json")
+                    .then(response => response.json())
+                    .then(json => {
+                        addToLog("NOTICE", "GET MOST LIKED. TOTAL: " + json.length, "COMPLETE");
+                        allData = json;
+                        showProgress();
+                        getFullData();
+                    });
+            }
+        }
+
+        async function getFullData(){
+            var counter = 0;
+            for(var data of allData){
+                counter++;
+                setProgress(counter/allData.length);
+                await getSketchData(data, true, true, counter).then(d => data = d)
+            }
+            hideProgress();
+            addToLog("NOTICE", "ALL URLS FETCHED", "COMPLETE");
+            if(TEST)
+                console.log(allData)
+        }
+
+        function download(content, fileName, contentType) {
+            var a = document.createElement("a");
+            var file = new Blob([content], {type: contentType});
+            a.href = URL.createObjectURL(file);
+            a.download = fileName;
+            a.click();
+        }
+
+        async function getForkData(data){
+            var url = "https://openprocessing.org/sketch/"+data.visualID+"/getForks_ajax";
+            addToLog("NOTICE", "GET FORKS: " + data.visualID, "INIT");
+            await fetch(url)
+                .then(response => response.json())
+                .then(async function(json){
+                    addToLog("NOTICE", "GET FORKS: " + data.visualID, "COMPLETE");
+                    data.forks = json.object;
+                    for(data of data.forks){
+                        await getSketchData(data, false, false)
+                    }
+                    return data;
+                }).catch(function(error) {
+                    addToLog("ERROR", "GET FORKS: " + data.visualID + " - " + error, "COMPLETE");
+                    return data;
+                });
+        }
+
+        async function getSketchData(data, getForks, save, index) {
+            var url = "https://openprocessing.org/api/sketch/"+data.visualID+"/true";
+            addToLog("NOTICE", "GET SKETCH: " + data.visualID, "INIT");
+            await fetch(url)
+                .then(response => {
+                    return response.clone().json()
+                })
+                .then(async function(json){
+                    addToLog("NOTICE", "GET SKETCH: " + data.visualID, "COMPLETE");
+                    if(getForks)
+                        await getForkData(data)
+                    await getUserData(data);
+                    Object.assign(data, json.sketch);
+                    if(save){
+                        download(JSON.stringify(data), 'data-'+index+'-'+data.visualID+'.json', 'text/plain');
+                    }
+                    return data;
+                }).catch(function(error) {
+                    addToLog("ERROR", "GET SKETCH: " + error, "COMPLETE");
+                    return data;
+                });
+        }
+
+        var cachedUsers = {};
+        async function getUserData(data) {
+            if(cachedUsers[data.userID]){
+                data.user = cachedUsers[data.userID];
+                return data;
+            }
+
+            var url = "https://openprocessing.org/api/user/"+data.userID+"/true";
+            addToLog("NOTICE", "GET USER: " + data.userID, "INIT");
+            await fetch(url)
+                .then(response => {
+                    return response.json()
+                })
+                .then(async function(json){
+                    addToLog("NOTICE", "GET USER: " + data.userID, "COMPLETE");
+                    cachedUsers[data.userID] = json.user;
+                    data.user = json.user;
+                    return data;
+                }).catch(function(error) {
+                    addToLog("ERROR", "GET USER: " + data.userID + " - " + error, "COMPLETE");
+                    return data;
+                });
+        }
+
+        /**
+         * Progress bar
+         **/
+        function setProgress(pct){
+            progressBarEl.style.width = (pct * 100) + "%";
+        }
+
+        function showProgress(){
+            progressEl.style.display = "";
+        }
+
+        function hideProgress(){
+            progressEl.style.display = "none";
+        }
+        
+        /**
+         * Logger
+         **/
+        var counter = 0;
+        function addToLog(type, message, status){
+            counter++;
+            var trEl = document.createElement("tr");
+            var thEl = document.createElement("th");
+            var tdEl1 = document.createElement("td");
+            var tdEl2 = document.createElement("td");
+            var tdEl3 = document.createElement("td");
+            thEl.setAttribute("scope", "row");
+            thEl.innerHTML = counter;
+            if(type == "NOTICE")
+                tdEl1.innerHTML = '<span class="badge bg-primary">' + type + '</span>';
+            else if(type == "ERROR")
+                tdEl1.innerHTML = '<span class="badge bg-danger">' + type + '</span>';
+            else
+                tdEl1.innerHTML = '<span class="badge bg-secondary">' + type + '</span>';
+            tdEl2.innerHTML = message;
+
+            if(status == "INIT")
+                tdEl3.innerHTML = '<span class="badge bg-primary">' + status + '</span>';
+            else if(status == "COMPLETE")
+                tdEl3.innerHTML = '<span class="badge bg-success">' + status + '</span>';
+            else
+                tdEl3.innerHTML = '<span class="badge bg-secondary">' + status + '</span>';
+            trEl.appendChild(thEl);
+            trEl.appendChild(tdEl1);
+            trEl.appendChild(tdEl2);
+            trEl.appendChild(tdEl3);
+            loggerEl.tBodies[0].prepend(trEl)
+        }
+    </script>
+</body>
+</html>
